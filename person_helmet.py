@@ -5,8 +5,9 @@ from ultralytics import YOLO
 from tqdm import tqdm
 
 # ====== CONFIG ======
-IMAGE_DIR = "images"
+VIDEO_SOURCE = 0  # Use 0 for webcam or provide path to video file
 OUTPUT_DIR = "outputs"
+OUTPUT_VIDEO_NAME = "helmet_detection_output.mp4"
 IOU_THRESHOLD = 0.2
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -29,15 +30,27 @@ def iou(boxA, boxB):
     boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
     return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
 
-# ====== Run on Images ======
-image_files = [f for f in os.listdir(IMAGE_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+# ====== Open Video Capture ======
+# cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture("rtsp://admin:Sunnet1q2w@192.168.0.65:554/stream")#Server Room
 
-for img_file in tqdm(image_files, desc="Processing"):
-    img_path = os.path.join(IMAGE_DIR, img_file)
-    image = cv2.imread(img_path)
-    if image is None:
-        continue
-    original = image.copy()
+# Get video properties
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = cap.get(cv2.CAP_PROP_FPS)
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+# Create VideoWriter object
+out = cv2.VideoWriter(os.path.join(OUTPUT_DIR, OUTPUT_VIDEO_NAME), fourcc, fps, (width, height))
+
+print("🎥 Starting video processing... Press 'q' to quit.")
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    image = frame.copy()
 
     # ==== Detect persons ====
     person_results = person_model(image)[0]
@@ -48,8 +61,6 @@ for img_file in tqdm(image_files, desc="Processing"):
         if label.lower() == 'person':
             x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
             person_boxes.append((x1, y1, x2, y2))
-            cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(image, "Person", (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
     # ==== Detect helmets ====
     helmet_boxes = []
@@ -70,8 +81,15 @@ for img_file in tqdm(image_files, desc="Processing"):
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(image, label, (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-    # ==== Save output ====
-    save_path = os.path.join(OUTPUT_DIR, f"check_{img_file}")
-    cv2.imwrite(save_path, image)
+    # ==== Display and Save Frame ====
+    out.write(image)
+    cv2.imshow("Helmet Detection", image)
 
-print("✅ All images processed and saved to 'outputs/' folder.")
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# ====== Cleanup ======
+cap.release()
+out.release()
+cv2.destroyAllWindows()
+print("✅ Video processing complete. Saved to 'outputs/' folder.")
