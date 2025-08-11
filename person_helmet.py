@@ -1,5 +1,6 @@
 import os
 import cv2
+import time
 import numpy as np
 from ultralytics import YOLO
 from tqdm import tqdm
@@ -19,6 +20,22 @@ helmet_models = [
     YOLO("models/hemletYoloV8_25epochs.pt")
 ]
 
+
+
+
+
+def reconnect_stream(source, max_retries=5, wait_sec=5):
+    for attempt in range(max_retries):
+        print(f"🔄 Attempting to reconnect to stream (try {attempt+1}/{max_retries})...")
+        cap = cv2.VideoCapture(source)
+        time.sleep(1)
+        if cap.isOpened():
+            print("✅ Reconnected to the stream.")
+            return cap
+        time.sleep(wait_sec)
+    print("❌ Failed to reconnect to stream after multiple attempts.")
+    return None
+
 # ====== IoU Function ======
 def iou(boxA, boxB):
     xA = max(boxA[0], boxB[0])
@@ -32,7 +49,10 @@ def iou(boxA, boxB):
 
 # ====== Open Video Capture ======
 # cap = cv2.VideoCapture(0)
-cap = cv2.VideoCapture("rtsp://admin:Sunnet1q2w@192.168.0.65:554/stream")#Server Room
+# cap = cv2.VideoCapture("rtsp://admin:Sunnet1q2w@192.168.0.65:554/stream")#Server Room
+
+cap = cv2.VideoCapture("rtsp://admin:Sunnet1q2w@192.168.0.64:554/stream", cv2.CAP_FFMPEG)#main Room
+
 
 # Get video properties
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -45,10 +65,23 @@ out = cv2.VideoWriter(os.path.join(OUTPUT_DIR, OUTPUT_VIDEO_NAME), fourcc, fps, 
 
 print("🎥 Starting video processing... Press 'q' to quit.")
 
-while cap.isOpened():
+while True:
+    if not cap.isOpened():
+        cap = reconnect_stream("rtsp://admin:Sunnet1q2w@192.168.0.64:554/stream")
+        if cap is None:
+            break
+
     ret, frame = cap.read()
-    if not ret:
-        break
+    if not ret or frame is None:
+        print("⚠️ Frame read failed, stream might have dropped.")
+        cap.release()
+        cap = reconnect_stream("rtsp://admin:Sunnet1q2w@192.168.0.64:554/stream")
+        if cap is None:
+            break
+        continue
+
+    # continue processing frame...
+
 
     image = frame.copy()
 
