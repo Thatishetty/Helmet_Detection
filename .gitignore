@@ -10,6 +10,11 @@ venv/
 .DS_Store
 
 # Output images
+images/
+output_mask/
+output_mask_webcam/
+output_musk_live/
+mask/
 outputs/
 logs/
 archive/
