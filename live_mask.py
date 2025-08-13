@@ -16,7 +16,7 @@ from yolov5.utils.torch_utils import select_device
 
 # ===== CONFIG =====
 OUTPUT_DIR = "output_mask_webcam"
-MASK_MODEL_PATH = "models/mask_yolov5.pt"
+MASK_MODEL_PATH = "models/mask_detector_model.h5"
 PERSON_MODEL_PATH = "yolov8n.pt"
 CONF_PERSON = 0.5
 CONF_MASK = 0.4
@@ -38,7 +38,7 @@ device = select_device('')
 mask_model = DetectMultiBackend(MASK_MODEL_PATH, device=device)
 
 # Open webcam
-cap = cv2.VideoCapture(CAM_INDEX)
+cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("Error: Could not open webcam")
     sys.exit()

@@ -1,73 +1,65 @@
-import sys
-import os
 import cv2
-import csv
-from datetime import datetime
+import glob
 from ultralytics import YOLO
 
 # ===== CONFIG =====
-IMAGE_DIR = "ppe_images"
-OUTPUT_DIR = "output_ppe"
-PPE_MODEL_PATH = "models/best.pt"  # your trained PPE model
-CONF_PPE = 0.4
+MODEL1_PATH = "ppe_detection1.pt"   # First model
+MODEL2_PATH = "ppe_detection2.pt"   # Second model
+IMAGE_FOLDER = "ppeimages/images"   # Folder containing test images
+CONF_THRESHOLD = 0.5
 
-# Create output directory
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-CSV_LOG_PATH = os.path.join(OUTPUT_DIR, "ppe_violation_log.csv")
+# Expected PPE items
+PPE_ITEMS = ["Helmet", "Vest", "Boots"]
 
-# Write CSV header
-with open(CSV_LOG_PATH, 'w', newline='') as f:
-    csv.writer(f).writerow(["Timestamp", "Image", "Violation"])
+# Load both models
+model1 = YOLO("models/best.pt")
+model2 = YOLO("models/yolov8n.pt")
 
-# Load model
-print("Loading PPE model...")
-ppe_model = YOLO(PPE_MODEL_PATH)
+# Get all image paths
+image_paths = glob.glob(f"{IMAGE_FOLDER}/*.jpg") + glob.glob(f"{IMAGE_FOLDER}/*.png")
 
-# Process images in folder
-for img_name in os.listdir(IMAGE_DIR):
-    if not img_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-        continue
+for img_path in image_paths:
+    img = cv2.imread(img_path)
 
-    img_path = os.path.join(IMAGE_DIR, img_name)
-    img0 = cv2.imread(img_path)
-    if img0 is None:
-        print(f"Could not read {img_name}")
-        continue
+    # Run both models
+    results1 = model1(img, conf=CONF_THRESHOLD)[0]
+    results2 = model2(img, conf=CONF_THRESHOLD)[0]
 
-    results = ppe_model(img_path, conf=CONF_PPE, verbose=False)
-    img_vis = img0.copy()
+    # Merge detections
+    detections = []
+    for result in [results1, results2]:
+        for box in result.boxes:
+            cls_id = int(box.cls[0])
+            conf = float(box.conf[0])
+            label = result.names[cls_id]
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            detections.append((label, conf, (x1, y1, x2, y2)))
 
-    violation_detected = False
-
-    for box in results[0].boxes:
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-        cls = int(box.cls[0])
-        label = ppe_model.names[cls]
-        conf = box.conf[0]
-        
-        # Color coding
-        if "no" in label.lower():
-            color = (0, 0, 255)  # red for violation
-            violation_detected = True
+    # Group PPE by person (simplified for image testing)
+    person_ppe = {}
+    person_id = 0
+    for label, conf, (x1, y1, x2, y2) in detections:
+        if label == "Person":
+            person_ppe[person_id] = {"bbox": (x1, y1, x2, y2), "ppe": set()}
+            person_id += 1
         else:
-            color = (0, 255, 0)  # green for compliance
+            # Assign PPE to closest person bbox
+            for pid in person_ppe:
+                px1, py1, px2, py2 = person_ppe[pid]["bbox"]
+                if px1 < (x1 + x2) / 2 < px2 and py1 < (y1 + y2) / 2 < py2:
+                    person_ppe[pid]["ppe"].add(label)
 
-        # Draw
-        cv2.rectangle(img_vis, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(img_vis, f"{label} {conf:.2f}", (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    # Draw results
+    for pid, pdata in person_ppe.items():
+        x1, y1, x2, y2 = pdata["bbox"]
+        missing = [item for item in PPE_ITEMS if item not in pdata["ppe"]]
+        color = (0, 255, 0) if not missing else (0, 0, 255)
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(img, f"Missing: {', '.join(missing) if missing else 'None'}",
+                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    # Log if violation
-    if violation_detected:
-        with open(CSV_LOG_PATH, 'a', newline='') as f:
-            csv.writer(f).writerow([datetime.now().isoformat(), img_name, "PPE Violation"])
-
-    # Save and show
-    cv2.imwrite(os.path.join(OUTPUT_DIR, img_name), img_vis)
-    cv2.imshow("PPE Detection", img_vis)
-    key = cv2.waitKey(2000) & 0xFF
-    if key == 27:  # ESC to quit
-        break
+    # Show result
+    cv2.imshow("PPE Detection", img)
+    cv2.waitKey(0)
 
 cv2.destroyAllWindows()
-print("PPE detection complete. Check outputs in", OUTPUT_DIR)

@@ -37,7 +37,7 @@ device = select_device('')
 mask_model = DetectMultiBackend(MASK_MODEL_PATH, device=device)
 
 # Open camera
-cap = cv2.VideoCapture(CAMERA_SOURCE)
+cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("❌ Cannot open camera")
     sys.exit()
